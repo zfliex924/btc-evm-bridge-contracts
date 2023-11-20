@@ -7,9 +7,7 @@
 		"build": "hardhat compile && tsc",
 		"clean": "rimraf artifacts && rimraf cache && rimraf deployments/localhost && rimraf src/types/*",
 		"prepare": "husky install",
-		"deploy:local": "hardhat deploy --network hardhat --export export/abi/local.json",
-		"deploy:polygon": "NODE_ENV=polygon hardhat deploy --network polygon --export export/abi/polygon.json",
-		"deploy:mumbai": "NODE_ENV=mumbai hardhat deploy --network mumbai --export export/abi/mumbai.json",
+		"deploy": "NODE_ENV=$NETWORK hardhat deploy --network $NETWORK --export export/abi/$NETWORK.json",
 		"test": "hardhat test",
 		"lint": "commitlint --from=HEAD"
 	},
