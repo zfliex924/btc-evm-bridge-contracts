@@ -119,6 +119,10 @@ library BitcoinHelper {
         bytes memory _vout,
         bytes4 _locktime
     ) internal pure returns (bytes32) {
+        // Validates Vin length
+        bytes29 vin = tryAsVin(_vin.ref(uint40(BTCTypes.Unknown)));
+        require(!vin.isNull(), "BitcoinHelper: vin is null");
+
         bytes32 inputHash1 = sha256(abi.encodePacked(_version, _vin, _vout, _locktime));
         bytes32 inputHash2 = sha256(abi.encodePacked(inputHash1));
         return inputHash2;
@@ -401,7 +405,7 @@ library BitcoinHelper {
             _arbitraryData = opReturnPayloadBig(_scriptPubkeyWithLength);
 
             // Checks whether the output is an arbitarary data or not
-            if(_arbitraryData == 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffff) {
+            if(_arbitraryData == TypedMemView.NULL) {
                 // Output is not an arbitrary data
                 if (
                     keccak256(abi.encodePacked(_scriptPubkey.clone())) == keccak256(abi.encodePacked(_lockingScript))
@@ -490,9 +494,11 @@ library BitcoinHelper {
     function opReturnPayloadBig(bytes29 _spk) internal pure typeAssert(_spk, BTCTypes.ScriptPubkey) returns (bytes29) {
         uint64 _bodyLength = indexCompactInt(_spk, 0);
         uint64 _payloadLen = _spk.indexUint(3, 1).toUint64();
-        if (_bodyLength > 83 || _bodyLength < 4 || _spk.indexUint(1, 1) != 0x6a || _spk.indexUint(3, 1) != _bodyLength - 3) {
+        if (_spk.indexUint(1, 1) != 0x6a || _spk.indexUint(3, 1) != _bodyLength - 3) {
             return TypedMemView.nullView();
         }
+        // Extra checks for OP_RETURN
+        require(_bodyLength <= 83 && _bodyLength >= 4, "BitcoinHelper: invalid opreturn"); 
         return _spk.slice(4, _payloadLen, uint40(BTCTypes.OpReturnPayload));
     }
 
@@ -503,9 +509,12 @@ library BitcoinHelper {
     function opReturnPayloadSmall(bytes29 _spk) internal pure typeAssert(_spk, BTCTypes.ScriptPubkey) returns (bytes29) {
         uint64 _bodyLength = indexCompactInt(_spk, 0);
         uint64 _payloadLen = _spk.indexUint(2, 1).toUint64();
-        if (_bodyLength > 77 || _bodyLength < 4 || _spk.indexUint(1, 1) != 0x6a || _spk.indexUint(2, 1) != _bodyLength - 2) {
+        if (_spk.indexUint(1, 1) != 0x6a || _spk.indexUint(2, 1) != _bodyLength - 2) {
+            // This means that this output is not OP_RETURN
             return TypedMemView.nullView();
         }
+        // Extra checks for OP_RETURN
+        require(_bodyLength <= 77 && _bodyLength >= 4, "BitcoinHelper: invalid opreturn"); 
         return _spk.slice(3, _payloadLen, uint40(BTCTypes.OpReturnPayload));
     }
 
