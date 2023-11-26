@@ -714,7 +714,7 @@ library BitcoinHelper {
         bytes32 _root,
         uint256 _index
     ) private view typeAssert(_proof, BTCTypes.MerkleArray) returns (bool) {
-        require(_root != bytes32(0));
+        require(_root != bytes32(0), "BitcoinHelper: zero root");
 
         uint256 nodes = _proof.len() / 32;
         if (nodes == 0) {
