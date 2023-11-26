@@ -263,7 +263,7 @@ library BitcoinHelper {
         bytes memory _script,
         ScriptTypes _scriptType
     ) internal pure returns (uint64 bitcoinAmount) {
-
+        
         bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
         require(!voutView.isNull(), "BitcoinHelper: vout is null");
         bytes29 output = indexVout(voutView, _voutIndex);
@@ -714,6 +714,8 @@ library BitcoinHelper {
         bytes32 _root,
         uint256 _index
     ) private view typeAssert(_proof, BTCTypes.MerkleArray) returns (bool) {
+        require(_root != bytes32(0));
+
         uint256 nodes = _proof.len() / 32;
         if (nodes == 0) {
             return _leaf == _root;

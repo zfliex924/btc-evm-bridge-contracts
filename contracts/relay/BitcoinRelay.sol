@@ -222,6 +222,10 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
         
         // Check the inclusion of the transaction
         bytes32 _merkleRoot = chain[_blockHeight][0].merkleRoot;
+
+        // added in BitcoinHelper
+        // require(_merkleRoot != bytes32(0), "BitcoinRelay: root should be non-zero");
+
         bytes29 intermediateNodes = _intermediateNodes.ref(0).tryAsMerkleArray(); // Check for errors if any
         
         emit NewQuery(_txid, _blockHeight, paidFee); 
