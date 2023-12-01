@@ -8,6 +8,7 @@
 		"clean": "rimraf artifacts && rimraf cache && rimraf deployments/localhost && rimraf src/types/*",
 		"prepare": "husky install",
 		"deploy": "NODE_ENV=$NETWORK hardhat deploy --network $NETWORK --export export/abi/$NETWORK.json",
+		"init": "NODE_ENV=$NETWORK hardhat deploy --network $NETWORK --export export/abi/$NETWORK.json --deploy-scripts scripts",
 		"test": "hardhat test",
 		"lint": "commitlint --from=HEAD"
 	},
