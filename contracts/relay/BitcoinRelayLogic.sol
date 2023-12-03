@@ -487,7 +487,7 @@ contract BitcoinRelayLogic is IBitcoinRelay, OwnableUpgradeable, ReentrancyGuard
             * (ONE_HUNDRED_PERCENT + relayerPercentageFee) / ONE_HUNDRED_PERCENT;
 
         // Reward in TDT
-        uint contractTDTBalance = 0;
+        uint contractTDTBalance;
         if (TeleportDAOToken != address(0)) {
             contractTDTBalance = IERC20(TeleportDAOToken).balanceOf(address(this));
         }

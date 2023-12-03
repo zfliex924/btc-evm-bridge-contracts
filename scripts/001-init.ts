@@ -71,6 +71,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         );
         await initializeTxProxy.wait(1);
         console.log("BitcoinRelayProxy initialized: ", initializeTxProxy.hash);
+    } else {
+        console.log("Already initialized")
     }
 
     logger.color('blue').log("-------------------------------------------------")
@@ -86,8 +88,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         );
         await initializeTxProxy.wait(1);
         console.log("BitcoinRelayLogic initialized: ", initializeTxProxy.hash);
+    } else {
+        console.log("Already initialized")
     }
-
 };
 
 export default func;
