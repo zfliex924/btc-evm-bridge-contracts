@@ -1,19 +1,28 @@
 import { HardhatRuntimeEnvironment } from 'hardhat/types';
 import { DeployFunction } from 'hardhat-deploy/types';
-import verify from "../helper-functions"
+import config from 'config';
+import verify from "../helper-functions";
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const { deployments, getNamedAccounts, network } = hre;
     const { deploy } = deployments;
     const { deployer } = await getNamedAccounts();
 
-    const bitcoinRelayLogic = await deployments.get("BitcoinRelayLogic")
+    const bitcoinNetwork = config.get("bitcoin_network");
+    const proxyAdmin = config.get("proxy_admin");
+    let bitcoinRelayLogic;
+
+    if (bitcoinNetwork == "mainnet") {
+        bitcoinRelayLogic = await deployments.get("BitcoinRelayLogic");
+    } else {
+        bitcoinRelayLogic = await deployments.get("BitcoinRelayLogicTestnet");
+    }
 
     let theArgs = [
         bitcoinRelayLogic.address,
-        deployer,
+        proxyAdmin,
         "0x"
-    ]
+    ];
 
     const deployedContract = await deploy("BitcoinRelayProxy", {
         from: deployer,
