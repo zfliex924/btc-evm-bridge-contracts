@@ -2,7 +2,6 @@ import * as dotenv from "dotenv";
 
 import { task, HardhatUserConfig} from "hardhat/config";
 import { HttpNetworkUserConfig } from "hardhat/types";
-
 import "@nomiclabs/hardhat-etherscan";
 import "@nomiclabs/hardhat-waffle";
 import "@typechain/hardhat";
@@ -101,7 +100,6 @@ const config: HardhatUserConfig = {
 		bsc: {
 			url: "https://bsc-dataseed.binance.org/",
 			chainId: 56,
-			gasPrice: 20000000000,
 			accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
 		},
 		bsc_testnet: {
