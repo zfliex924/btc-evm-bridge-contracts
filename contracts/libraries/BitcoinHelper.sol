@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.8.4;
+pragma solidity ^0.8.20;
 
 import "./TypedMemView.sol";
 import "../types/ScriptTypesEnum.sol";
@@ -40,7 +40,8 @@ library BitcoinHelper {
         HeaderArray,        // 0x11
         MerkleNode,         // 0x12
         MerkleStep,         // 0x13
-        MerkleArray         // 0x14
+        MerkleArray,        // 0x14
+        Tx                  // 0x15
     }
 
     /// @notice             requires `memView` to be of a specified type
@@ -108,22 +109,9 @@ library BitcoinHelper {
 
     /// @notice                      Calculates the required transaction Id from the transaction details
     /// @dev                         Calculates the hash of transaction details two consecutive times
-    /// @param _version              Version of the transaction
-    /// @param _vin                  Inputs of the transaction
-    /// @param _vout                 Outputs of the transaction
-    /// @param _locktime             Lock time of the transaction
     /// @return                      Transaction Id of the transaction (in LE form)
-    function calculateTxId(
-        bytes4 _version,
-        bytes memory _vin,
-        bytes memory _vout,
-        bytes4 _locktime
-    ) internal pure returns (bytes32) {
-        // Validates Vin length
-        bytes29 vin = tryAsVin(_vin.ref(uint40(BTCTypes.Unknown)));
-        require(!vin.isNull(), "BitcoinHelper: vin is null");
-
-        bytes32 inputHash1 = sha256(abi.encodePacked(_version, _vin, _vout, _locktime));
+    function calculateTxId(bytes memory _tx) internal pure returns (bytes32) {
+        bytes32 inputHash1 = sha256(_tx);
         bytes32 inputHash2 = sha256(abi.encodePacked(inputHash1));
         return inputHash2;
     }
@@ -150,15 +138,22 @@ library BitcoinHelper {
     /// @return _txId                     Output tx id
     /// @return _outputIndex              Output tx index
     function extractOutpoint(
-        bytes memory _vin, 
+        bytes29 _vin, 
         uint _index
-    ) internal pure returns (bytes32 _txId, uint _outputIndex) {
-        bytes29 vin = tryAsVin(_vin.ref(uint40(BTCTypes.Unknown)));
-        require(!vin.isNull(), "BitcoinHelper: vin is null");
-        bytes29 input = indexVin(vin, _index);
+    ) internal pure typeAssert(_vin, BTCTypes.Vin) returns (bytes32 _txId, uint _outputIndex) {
+        bytes29 input = indexVin(_vin, _index);
         bytes29 _outpoint = outpoint(input);
         _txId = txidLE(_outpoint);
         _outputIndex = outpointIdx(_outpoint);
+    }
+
+    function extractOutpoint(
+        bytes memory _vin, 
+        uint _index
+    ) internal pure returns (bytes32, uint) {
+        bytes29 vin = tryAsVin(_vin.ref(uint40(BTCTypes.Unknown)));
+        require(!vin.isNull(), "BitcoinHelper: vin is null");
+        return extractOutpoint(vin, _index);
     }
 
     /// @notice             extracts the index as an integer from the outpoint
@@ -236,18 +231,22 @@ library BitcoinHelper {
     /// @dev                      Reverts if vout is null
     /// @param _vout              The vout of a Bitcoin transaction
     /// @return _totalValue       Total vout value
-    function parseOutputsTotalValue(bytes memory _vout) internal pure returns (uint64 _totalValue) {
-        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
-        require(!voutView.isNull(), "BitcoinHelper: vout is null");
+    function parseOutputsTotalValue(bytes29 _vout) internal pure typeAssert(_vout, BTCTypes.Vout) returns (uint64 _totalValue) {
         bytes29 output;
 
         // Finds total number of outputs
-        uint _numberOfOutputs = uint256(indexCompactInt(voutView, 0));
+        uint _numberOfOutputs = uint256(indexCompactInt(_vout, 0));
 
         for (uint index = 0; index < _numberOfOutputs; index++) {
-            output = indexVout(voutView, index);
+            output = indexVout(_vout, index);
             _totalValue = _totalValue + value(output);
         }
+    }
+
+    function parseOutputsTotalValue(bytes memory _vout) internal pure returns (uint64) {
+        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
+        require(!voutView.isNull(), "BitcoinHelper: vout is null");
+        return parseOutputsTotalValue(_vout);
     }
 
     /// @notice                           Parses the BTC amount that has been sent to 
@@ -258,15 +257,12 @@ library BitcoinHelper {
     /// @param _scriptType                Type of the script (e.g. P2PK)
     /// @return bitcoinAmount             Amount of BTC have been sent to the _script
     function parseValueFromSpecificOutputHavingScript(
-        bytes memory _vout,
+        bytes29 _vout,
         uint _voutIndex,
         bytes memory _script,
         ScriptTypes _scriptType
-    ) internal pure returns (uint64 bitcoinAmount) {
-        
-        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
-        require(!voutView.isNull(), "BitcoinHelper: vout is null");
-        bytes29 output = indexVout(voutView, _voutIndex);
+    ) internal pure typeAssert(_vout, BTCTypes.Vout)  returns (uint64 bitcoinAmount) {
+        bytes29 output = indexVout(_vout, _voutIndex);
         bytes29 _scriptPubkey = scriptPubkey(output);
         
         if (_scriptType == ScriptTypes.P2TR) {
@@ -297,6 +293,17 @@ library BitcoinHelper {
         
     }
 
+    function parseValueFromSpecificOutputHavingScript(
+        bytes memory _vout,
+        uint _voutIndex,
+        bytes memory _script,
+        ScriptTypes _scriptType
+    ) internal pure returns (uint64) {
+        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
+        require(!voutView.isNull(), "BitcoinHelper: vout is null");
+        return parseValueFromSpecificOutputHavingScript(voutView, _voutIndex, _script, _scriptType);
+    }
+
     /// @notice                           Parses the BTC amount of a transaction
     /// @dev                              Finds the BTC amount that has been sent to the locking script
     ///                                   Returns zero if no matching locking scrip is found
@@ -304,21 +311,17 @@ library BitcoinHelper {
     /// @param _lockingScript             Desired locking script
     /// @return bitcoinAmount             Amount of BTC have been sent to the _lockingScript
     function parseValueHavingLockingScript(
-        bytes memory _vout,
+        bytes29 _vout,
         bytes memory _lockingScript
     ) internal view returns (uint64 bitcoinAmount) {
-        // Checks that vout is not null
-        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
-        require(!voutView.isNull(), "BitcoinHelper: vout is null");
-
         bytes29 output;
         bytes29 _scriptPubkey;
         
         // Finds total number of outputs
-        uint _numberOfOutputs = uint256(indexCompactInt(voutView, 0));
+        uint _numberOfOutputs = uint256(indexCompactInt(_vout, 0));
 
         for (uint index = 0; index < _numberOfOutputs; index++) {
-            output = indexVout(voutView, index);
+            output = indexVout(_vout, index);
             _scriptPubkey = scriptPubkey(output);
 
             if (
@@ -331,6 +334,16 @@ library BitcoinHelper {
         }
     }
 
+    function parseValueHavingLockingScript(
+        bytes memory _vout,
+        bytes memory _lockingScript
+    ) internal view returns (uint64) {
+        // Checks that vout is not null
+        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
+        require(!voutView.isNull(), "BitcoinHelper: vout is null");
+        return parseValueHavingLockingScript(voutView, _lockingScript);
+    }
+
     /// @notice                           Parses the BTC amount and the op_return of a transaction
     /// @dev                              Finds the BTC amount that has been sent to the locking script
     ///                                   Assumes that payload size is less than 76 bytes
@@ -338,27 +351,23 @@ library BitcoinHelper {
     /// @param _lockingScript             Desired locking script
     /// @return bitcoinAmount             Amount of BTC have been sent to the _lockingScript
     /// @return arbitraryData             Opreturn  data of the transaction
-    function parseValueAndDataHavingLockingScriptSmallPayload(
-        bytes memory _vout,
+    function parseValueAndDataHavingLockingScript(
+        bytes29 _vout,
         bytes memory _lockingScript
-    ) internal view returns (uint64 bitcoinAmount, bytes memory arbitraryData) {
-        // Checks that vout is not null
-        bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
-        require(!voutView.isNull(), "BitcoinHelper: vout is null");
-
+    ) internal view typeAssert(_vout, BTCTypes.Vout) returns (uint64 bitcoinAmount, bytes memory arbitraryData) {
         bytes29 output;
         bytes29 _scriptPubkey;
         bytes29 _scriptPubkeyWithLength;
         bytes29 _arbitraryData;
 
         // Finds total number of outputs
-        uint _numberOfOutputs = uint256(indexCompactInt(voutView, 0));
+        uint _numberOfOutputs = uint256(indexCompactInt(_vout, 0));
 
         for (uint index = 0; index < _numberOfOutputs; index++) {
-            output = indexVout(voutView, index);
+            output = indexVout(_vout, index);
             _scriptPubkey = scriptPubkey(output);
             _scriptPubkeyWithLength = scriptPubkeyWithLength(output);
-            _arbitraryData = opReturnPayloadSmall(_scriptPubkeyWithLength);
+            _arbitraryData = opReturnPayload(_scriptPubkeyWithLength);
 
             // Checks whether the output is an arbitarary data or not
             if(_arbitraryData == TypedMemView.NULL) {
@@ -375,48 +384,14 @@ library BitcoinHelper {
         }
     }
 
-    /// @notice                           Parses the BTC amount and the op_return of a transaction
-    /// @dev                              Finds the BTC amount that has been sent to the locking script
-    ///                                   Assumes that payload size is greater than 75 bytes
-    /// @param _vout                      The vout of a Bitcoin transaction
-    /// @param _lockingScript             Desired locking script
-    /// @return bitcoinAmount             Amount of BTC have been sent to the _lockingScript
-    /// @return arbitraryData             Opreturn  data of the transaction
-    function parseValueAndDataHavingLockingScriptBigPayload(
+    function parseValueAndDataHavingLockingScript(
         bytes memory _vout,
         bytes memory _lockingScript
-    ) internal view returns (uint64 bitcoinAmount, bytes memory arbitraryData) {
+    ) internal view returns (uint64, bytes memory) {
         // Checks that vout is not null
         bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
         require(!voutView.isNull(), "BitcoinHelper: vout is null");
-
-        bytes29 output;
-        bytes29 _scriptPubkey;
-        bytes29 _scriptPubkeyWithLength;
-        bytes29 _arbitraryData;
-
-        // Finds total number of outputs
-        uint _numberOfOutputs = uint256(indexCompactInt(voutView, 0));
-
-        for (uint index = 0; index < _numberOfOutputs; index++) {
-            output = indexVout(voutView, index);
-            _scriptPubkey = scriptPubkey(output);
-            _scriptPubkeyWithLength = scriptPubkeyWithLength(output);
-            _arbitraryData = opReturnPayloadBig(_scriptPubkeyWithLength);
-
-            // Checks whether the output is an arbitarary data or not
-            if(_arbitraryData == TypedMemView.NULL) {
-                // Output is not an arbitrary data
-                if (
-                    keccak256(abi.encodePacked(_scriptPubkey.clone())) == keccak256(abi.encodePacked(_lockingScript))
-                ) {
-                    bitcoinAmount = value(output);
-                }
-            } else {
-                // Returns the whole bytes array
-                arbitraryData = _arbitraryData.clone();
-            }
-        }
+        return parseValueAndDataHavingLockingScript(voutView, _lockingScript);
     }
 
     /// @notice             extracts the scriptPubkey from an output
@@ -441,21 +416,33 @@ library BitcoinHelper {
     /// @param _index                     Index of the output that we are looking at
     /// @return _lockingScript            Parsed locking script
     function getLockingScript(
-        bytes memory _vout, 
+        bytes29 _vout, 
         uint _index
     ) internal view returns (bytes memory _lockingScript) {
-        bytes29 vout = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
-        require(!vout.isNull(), "BitcoinHelper: vout is null");
-        bytes29 output = indexVout(vout, _index);
+        bytes29 output = indexVout(_vout, _index);
         bytes29 _lockingScriptBytes29 = scriptPubkey(output);
         _lockingScript = _lockingScriptBytes29.clone();
     }
 
+    function getLockingScript(
+        bytes memory _vout, 
+        uint _index
+    ) internal view returns (bytes memory) {
+        bytes29 vout = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
+        require(!vout.isNull(), "BitcoinHelper: vout is null");
+        return getLockingScript(vout, _index);
+    }
+
     /// @notice                   Returns number of outputs in a vout
     /// @param _vout              The vout of a Bitcoin transaction           
-    function numberOfOutputs(bytes memory _vout) internal pure returns (uint _numberOfOutputs) {
+    function numberOfOutputs(bytes29 _vout) internal pure typeAssert(_vout, BTCTypes.Vout) returns (uint _numberOfOutputs) {
+        _numberOfOutputs = uint256(indexCompactInt(_vout, 0));
+    }
+
+    function numberOfOutputs(bytes memory _vout) internal pure returns (uint) {
         bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
-        _numberOfOutputs = uint256(indexCompactInt(voutView, 0));
+        require(!voutView.isNull(), "BitcoinHelper: vout is null");
+        return numberOfOutputs(voutView);
     }
 
     /// @notice             determines the length of the first output in an array of outputs
@@ -488,25 +475,10 @@ library BitcoinHelper {
     }
 
     /// @notice         extracts the Op Return Payload
-    /// @dev            structure of the input is: 1 byte op return + 2 bytes indicating the length of payload + max length for op return payload is 80 bytes
+    /// @dev            structure of the input is: 1 byte op return + 1 bytes indicating the length of payload + max length for op return payload is 26 bytes
     /// @param _spk     the scriptPubkey
     /// @return         the Op Return Payload (or null if not a valid Op Return output)
-    function opReturnPayloadBig(bytes29 _spk) internal pure typeAssert(_spk, BTCTypes.ScriptPubkey) returns (bytes29) {
-        uint64 _bodyLength = indexCompactInt(_spk, 0);
-        uint64 _payloadLen = _spk.indexUint(3, 1).toUint64();
-        if (_spk.indexUint(1, 1) != 0x6a || _spk.indexUint(3, 1) != _bodyLength - 3) {
-            return TypedMemView.nullView();
-        }
-        // Extra checks for OP_RETURN
-        require(_bodyLength <= 83 && _bodyLength >= 4, "BitcoinHelper: invalid opreturn"); 
-        return _spk.slice(4, _payloadLen, uint40(BTCTypes.OpReturnPayload));
-    }
-
-    /// @notice         extracts the Op Return Payload
-    /// @dev            structure of the input is: 1 byte op return + 1 bytes indicating the length of payload + max length for op return payload is 75 bytes
-    /// @param _spk     the scriptPubkey
-    /// @return         the Op Return Payload (or null if not a valid Op Return output)
-    function opReturnPayloadSmall(bytes29 _spk) internal pure typeAssert(_spk, BTCTypes.ScriptPubkey) returns (bytes29) {
+    function opReturnPayload(bytes29 _spk) internal pure typeAssert(_spk, BTCTypes.ScriptPubkey) returns (bytes29) {
         uint64 _bodyLength = indexCompactInt(_spk, 0);
         uint64 _payloadLen = _spk.indexUint(2, 1).toUint64();
         if (_spk.indexUint(1, 1) != 0x6a || _spk.indexUint(2, 1) != _bodyLength - 2) {
@@ -514,8 +486,53 @@ library BitcoinHelper {
             return TypedMemView.nullView();
         }
         // Extra checks for OP_RETURN
-        require(_bodyLength <= 77 && _bodyLength >= 4, "BitcoinHelper: invalid opreturn"); 
+        require(_bodyLength == 26, "BitcoinHelper: invalid opreturn"); 
         return _spk.slice(3, _payloadLen, uint40(BTCTypes.OpReturnPayload));
+    }
+
+    function getVinSize(bytes29 _vin) internal pure returns (uint256) {
+        if (_vin.len() == 0) {
+            return 0;
+        }
+        uint64 _nIns = indexCompactInt(_vin, 0);
+        uint256 _viewLen = _vin.len();
+        if (_nIns == 0) {
+            return 0;
+        }
+
+        uint256 _offset = uint256(compactIntLength(_nIns));
+        for (uint256 i = 0; i < _nIns; i++) {
+            if (_offset >= _viewLen) {
+                // We've reached the end, but are still trying to read more
+                return 0;
+            }
+            bytes29 _remaining = _vin.postfix(_viewLen - _offset, uint40(BTCTypes.IntermediateTxIns));
+            _offset += inputLength(_remaining);
+        }
+        return _offset;
+    }
+
+    function getVoutSize(bytes29 _vout) internal pure returns (uint256) {
+        if (_vout.len() == 0) {
+            return 0;
+        }
+        uint64 _nOuts = indexCompactInt(_vout, 0);
+
+        uint256 _viewLen = _vout.len();
+        if (_nOuts == 0) {
+            return 0;
+        }
+
+        uint256 _offset = uint256(compactIntLength(_nOuts));
+        for (uint256 i = 0; i < _nOuts; i++) {
+            if (_offset >= _viewLen) {
+                // We've reached the end, but are still trying to read more
+                return 0;
+            }
+            bytes29 _remaining = _vout.postfix(_viewLen - _offset, uint40(BTCTypes.IntermediateTxOuts));
+            _offset += outputLength(_remaining);
+        }
+        return _offset;
     }
 
     /// @notice     verifies the vin and converts to a typed memory
@@ -523,25 +540,7 @@ library BitcoinHelper {
     /// @param _vin the vin
     /// @return     the typed vin (or null if error)
     function tryAsVin(bytes29 _vin) internal pure typeAssert(_vin, BTCTypes.Unknown) returns (bytes29) {
-        if (_vin.len() == 0) {
-            return TypedMemView.nullView();
-        }
-        uint64 _nIns = indexCompactInt(_vin, 0);
-        uint256 _viewLen = _vin.len();
-        if (_nIns == 0) {
-            return TypedMemView.nullView();
-        }
-
-        uint256 _offset = uint256(compactIntLength(_nIns));
-        for (uint256 i = 0; i < _nIns; i++) {
-            if (_offset >= _viewLen) {
-                // We've reached the end, but are still trying to read more
-                return TypedMemView.nullView();
-            }
-            bytes29 _remaining = _vin.postfix(_viewLen - _offset, uint40(BTCTypes.IntermediateTxIns));
-            _offset += inputLength(_remaining);
-        }
-        if (_offset != _viewLen) {
+        if (getVinSize(_vin) != _vin.len()) {
             return TypedMemView.nullView();
         }
         return _vin.castTo(uint40(BTCTypes.Vin));
@@ -552,29 +551,57 @@ library BitcoinHelper {
     /// @param _vout    the vout
     /// @return         the typed vout (or null if error)
     function tryAsVout(bytes29 _vout) internal pure typeAssert(_vout, BTCTypes.Unknown) returns (bytes29) {
-        if (_vout.len() == 0) {
-            return TypedMemView.nullView();
-        }
-        uint64 _nOuts = indexCompactInt(_vout, 0);
-
-        uint256 _viewLen = _vout.len();
-        if (_nOuts == 0) {
-            return TypedMemView.nullView();
-        }
-
-        uint256 _offset = uint256(compactIntLength(_nOuts));
-        for (uint256 i = 0; i < _nOuts; i++) {
-            if (_offset >= _viewLen) {
-                // We've reached the end, but are still trying to read more
-                return TypedMemView.nullView();
-            }
-            bytes29 _remaining = _vout.postfix(_viewLen - _offset, uint40(BTCTypes.IntermediateTxOuts));
-            _offset += outputLength(_remaining);
-        }
-        if (_offset != _viewLen) {
+        if (getVoutSize(_vout) != _vout.len()) {
             return TypedMemView.nullView();
         }
         return _vout.castTo(uint40(BTCTypes.Vout));
+    }
+
+    function tryAsTx(bytes29 _tx) internal pure typeAssert(_tx, BTCTypes.Unknown) returns (bytes29) {
+        if (_tx.len() < 4) {
+            return TypedMemView.nullView();
+        }
+
+        uint256 _viewLen = _tx.len();
+        uint256 _offset = 4;
+
+        bytes29 _remaining = _tx.postfix(_viewLen - _offset, uint40(BTCTypes.Unknown));
+        uint256 _vinLen = getVinSize(_remaining);
+        if (_vinLen == 0 || _vinLen > _remaining.len()) {
+            TypedMemView.nullView();
+        }
+        _offset += _vinLen;
+
+        _remaining = _tx.postfix(_viewLen - _offset, uint40(BTCTypes.Unknown));
+        uint256 _voutLen = getVoutSize(_remaining);
+        if (_voutLen == 0 || _voutLen > _remaining.len()) {
+            TypedMemView.nullView();
+        }
+        _offset += _voutLen;
+
+        if (_offset + 4 != _viewLen) {
+            return TypedMemView.nullView();
+        }
+        return _tx.castTo(uint40(BTCTypes.Tx));
+    }
+
+    function extractTx(bytes29 _tx) internal pure typeAssert(_tx, BTCTypes.Tx) returns (uint32, bytes29, bytes29, uint32) {
+        uint32 _version = _tx.indexLEUint(0, 4).toUint32();
+        uint256 _viewLen = _tx.len();
+        uint256 _offset = 4;
+
+        bytes29 _remaining = _tx.postfix(_viewLen - _offset, uint40(BTCTypes.Unknown));
+        uint256 _vinLen = getVinSize(_remaining);
+        bytes29 _vin = _tx.slice(_offset, _vinLen, uint40(BTCTypes.TxIn));
+        _offset += _vinLen;
+
+        _remaining = _tx.postfix(_viewLen - _offset, uint40(BTCTypes.Unknown));
+        uint256 _voutLen = getVoutSize(_remaining);
+        bytes29 _vout = _tx.slice(_offset, _voutLen, uint40(BTCTypes.TxOut));
+        _offset += _voutLen;
+
+        uint32 _lockTime = _tx.indexLEUint(_offset, 4).toUint32();
+        return (_version, _vin, _vout, _lockTime);
     }
 
     /// @notice         verifies the header and converts to a typed memory
