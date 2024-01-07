@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.4;
 
 import "./TypedMemView.sol";
 import "../types/ScriptTypesEnum.sol";
@@ -109,6 +109,7 @@ library BitcoinHelper {
 
     /// @notice                      Calculates the required transaction Id from the transaction details
     /// @dev                         Calculates the hash of transaction details two consecutive times
+    /// @param _tx                   The Bitcoin transaction
     /// @return                      Transaction Id of the transaction (in LE form)
     function calculateTxId(bytes memory _tx) internal pure returns (bytes32) {
         bytes32 inputHash1 = sha256(_tx);
@@ -147,6 +148,12 @@ library BitcoinHelper {
         _outputIndex = outpointIdx(_outpoint);
     }
 
+    /// @notice                           Parses outpoint info from an input
+    /// @dev                              Reverts if vin is null
+    /// @param _vin                       The vin of a Bitcoin transaction
+    /// @param _index                     Index of the input that we are looking at
+    /// @return _txId                     Output tx id
+    /// @return _outputIndex              Output tx index
     function extractOutpoint(
         bytes memory _vin, 
         uint _index
@@ -243,6 +250,10 @@ library BitcoinHelper {
         }
     }
 
+    /// @notice                   Finds total outputs value
+    /// @dev                      Reverts if vout is null
+    /// @param _vout              The vout of a Bitcoin transaction
+    /// @return _totalValue       Total vout value
     function parseOutputsTotalValue(bytes memory _vout) internal pure returns (uint64) {
         bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
         require(!voutView.isNull(), "BitcoinHelper: vout is null");
@@ -293,6 +304,13 @@ library BitcoinHelper {
         
     }
 
+    /// @notice                           Parses the BTC amount that has been sent to 
+    ///                                   a specific script in a specific output
+    /// @param _vout                      The vout of a Bitcoin transaction
+    /// @param _voutIndex                 Index of the output that we are looking at
+    /// @param _script                    Desired recipient script
+    /// @param _scriptType                Type of the script (e.g. P2PK)
+    /// @return bitcoinAmount             Amount of BTC have been sent to the _script
     function parseValueFromSpecificOutputHavingScript(
         bytes memory _vout,
         uint _voutIndex,
@@ -334,6 +352,12 @@ library BitcoinHelper {
         }
     }
 
+    /// @notice                           Parses the BTC amount of a transaction
+    /// @dev                              Finds the BTC amount that has been sent to the locking script
+    ///                                   Returns zero if no matching locking scrip is found
+    /// @param _vout                      The vout of a Bitcoin transaction
+    /// @param _lockingScript             Desired locking script
+    /// @return bitcoinAmount             Amount of BTC have been sent to the _lockingScript
     function parseValueHavingLockingScript(
         bytes memory _vout,
         bytes memory _lockingScript
@@ -384,6 +408,13 @@ library BitcoinHelper {
         }
     }
 
+    /// @notice                           Parses the BTC amount and the op_return of a transaction
+    /// @dev                              Finds the BTC amount that has been sent to the locking script
+    ///                                   Assumes that payload size is less than 76 bytes
+    /// @param _vout                      The vout of a Bitcoin transaction
+    /// @param _lockingScript             Desired locking script
+    /// @return bitcoinAmount             Amount of BTC have been sent to the _lockingScript
+    /// @return arbitraryData             Opreturn  data of the transaction
     function parseValueAndDataHavingLockingScript(
         bytes memory _vout,
         bytes memory _lockingScript
@@ -424,6 +455,11 @@ library BitcoinHelper {
         _lockingScript = _lockingScriptBytes29.clone();
     }
 
+    /// @notice                           Parses locking script from an output
+    /// @dev                              Reverts if vout is null
+    /// @param _vout                      The vout of a Bitcoin transaction
+    /// @param _index                     Index of the output that we are looking at
+    /// @return _lockingScript            Parsed locking script
     function getLockingScript(
         bytes memory _vout, 
         uint _index
@@ -439,6 +475,8 @@ library BitcoinHelper {
         _numberOfOutputs = uint256(indexCompactInt(_vout, 0));
     }
 
+    /// @notice                   Returns number of outputs in a vout
+    /// @param _vout              The vout of a Bitcoin transaction    
     function numberOfOutputs(bytes memory _vout) internal pure returns (uint) {
         bytes29 voutView = tryAsVout(_vout.ref(uint40(BTCTypes.Unknown)));
         require(!voutView.isNull(), "BitcoinHelper: vout is null");
@@ -490,6 +528,9 @@ library BitcoinHelper {
         return _spk.slice(3, _payloadLen, uint40(BTCTypes.OpReturnPayload));
     }
 
+    /// @notice         returns size of vin
+    /// @param _vin     the vin
+    /// @return         the size of vin
     function getVinSize(bytes29 _vin) internal pure returns (uint256) {
         if (_vin.len() == 0) {
             return 0;
@@ -512,6 +553,9 @@ library BitcoinHelper {
         return _offset;
     }
 
+    /// @notice         returns size of vout
+    /// @param _vout    the vout
+    /// @return         the size of vout
     function getVoutSize(bytes29 _vout) internal pure returns (uint256) {
         if (_vout.len() == 0) {
             return 0;
@@ -557,6 +601,10 @@ library BitcoinHelper {
         return _vout.castTo(uint40(BTCTypes.Vout));
     }
 
+    /// @notice         verifies the tx and converts to a typed memory
+    /// @dev            will return null in error cases
+    /// @param _tx      the tx
+    /// @return         the typed tx (or null if error)
     function tryAsTx(bytes29 _tx) internal pure typeAssert(_tx, BTCTypes.Unknown) returns (bytes29) {
         if (_tx.len() < 4) {
             return TypedMemView.nullView();
@@ -568,14 +616,14 @@ library BitcoinHelper {
         bytes29 _remaining = _tx.postfix(_viewLen - _offset, uint40(BTCTypes.Unknown));
         uint256 _vinLen = getVinSize(_remaining);
         if (_vinLen == 0 || _vinLen > _remaining.len()) {
-            TypedMemView.nullView();
+            return TypedMemView.nullView();
         }
         _offset += _vinLen;
 
         _remaining = _tx.postfix(_viewLen - _offset, uint40(BTCTypes.Unknown));
         uint256 _voutLen = getVoutSize(_remaining);
         if (_voutLen == 0 || _voutLen > _remaining.len()) {
-            TypedMemView.nullView();
+            return TypedMemView.nullView();
         }
         _offset += _voutLen;
 
@@ -585,6 +633,9 @@ library BitcoinHelper {
         return _tx.castTo(uint40(BTCTypes.Tx));
     }
 
+    /// @notice     extracts transaction details from the given transaction bytes
+    /// @param _tx  the transaction bytes
+    /// @return     a tuple containing the transaction version, vin, vout, and lock time
     function extractTx(bytes29 _tx) internal pure typeAssert(_tx, BTCTypes.Tx) returns (uint32, bytes29, bytes29, uint32) {
         uint32 _version = _tx.indexLEUint(0, 4).toUint32();
         uint256 _viewLen = _tx.len();
