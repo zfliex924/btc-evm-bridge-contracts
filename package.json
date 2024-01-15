@@ -1,15 +1,14 @@
 {
 	"name": "@teleportdao/btc-evm-bridge",
-	"version": "1.0.1",
+	"version": "1.0.3",
 	"description": "Light client bridge for Bitcoin",
 	"license": "MIT",
 	"scripts": {
 		"build": "hardhat compile && tsc",
 		"clean": "rimraf artifacts && rimraf cache && rimraf deployments/localhost && rimraf src/types/*",
 		"prepare": "husky install",
-		"deploy:local": "hardhat deploy --network hardhat --export export/abi/local.json",
-		"deploy:polygon": "NODE_ENV=polygon hardhat deploy --network polygon --export export/abi/polygon.json",
-		"deploy:mumbai": "NODE_ENV=mumbai hardhat deploy --network mumbai --export export/abi/mumbai.json",
+		"deploy": "NODE_ENV=$NETWORK hardhat deploy --network $NETWORK --export export/abi/$NETWORK.json",
+		"init": "NODE_ENV=$NETWORK hardhat deploy --network $NETWORK --export export/abi/$NETWORK.json --deploy-scripts scripts",
 		"test": "hardhat test",
 		"lint": "commitlint --from=HEAD"
 	},
@@ -42,7 +41,7 @@
 		"hardhat": "^2.9.9",
 		"hardhat-contract-sizer": "^2.6.1",
 		"hardhat-deploy": "^0.11.10",
-		"hardhat-deploy-tenderly": "^0.1.1",
+		"hardhat-deploy-tenderly": "^0.2.0",
 		"hardhat-gas-reporter": "^1.0.8",
 		"husky": "^8.0.3",
 		"prettier": "^2.6.2",
@@ -54,7 +53,9 @@
 	},
 	"dependencies": {
 		"@openzeppelin/contracts": "4.3.3",
+		"@openzeppelin/contracts-upgradeable": "^4.7.3",
 		"@teleportdao/bitcoin": "^1.1.5-alpha.3",
-		"config": "^3.3.6"
+		"config": "^3.3.6",
+		"node-color-log": "^11.0.0"
 	}
 }

@@ -5,13 +5,13 @@ import "../libraries/TypedMemView.sol";
 import "../libraries/BitcoinHelper.sol";
 import "./interfaces/IBitcoinRelay.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
+contract BitcoinRelayLogic is IBitcoinRelay, OwnableUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
 
     using TypedMemView for bytes;
     using TypedMemView for bytes29;
@@ -49,15 +49,19 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
     /// @param  _height The starting height
     /// @param  _periodStart The hash of the first header in the genesis epoch
     /// @param  _TeleportDAOToken The address of the TeleportDAO ERC20 token contract
-    constructor(
+    function initialize(
         bytes memory _genesisHeader,
         uint256 _height,
         bytes32 _periodStart,
         address _TeleportDAOToken
-    ) {
+    ) public initializer {
+
+        OwnableUpgradeable.__Ownable_init();
+        ReentrancyGuardUpgradeable.__ReentrancyGuard_init();
+        PausableUpgradeable.__Pausable_init();
+
         // Adds the initial block header to the chain
         bytes29 _genesisView = _genesisHeader.ref(0).tryAsHeader();
-        require(_genesisView.notNull(), "BitcoinRelay: null block");
         // Genesis header and period start can be same
         bytes32 _genesisHash = _genesisView.hash256();
         relayGenesisHash = _genesisHash;
@@ -199,18 +203,20 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
     /// @param _intermediateNodes Part of the Merkle tree from the tx to the root in LE form (called Merkle proof)
     /// @param _index of the tx in Merkle tree
     /// @return True if the provided tx is confirmed on Bitcoin
-    function checkTxProof (
+    function checkTxProof(
         bytes32 _txid, // In LE form
         uint _blockHeight,
         bytes calldata _intermediateNodes, // In LE form
         uint _index
     ) external payable nonReentrant whenNotPaused override returns (bool) {
         require(_txid != bytes32(0), "BitcoinRelay: txid should be non-zero");
+
         // Revert if the block is not finalized
         require(
             _blockHeight + finalizationParameter < lastSubmittedHeight + 1,
             "BitcoinRelay: block is not finalized on the relay"
         );
+
         // Block header exists on the relay
         require(
             _blockHeight >= initialHeight,
@@ -219,18 +225,21 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
 
         // Get the Relay fee from the user
         uint paidFee = _getFee(chain[_blockHeight][0].gasPrice);
+
+        emit NewQuery(_txid, _blockHeight, paidFee); 
         
-        // Check the inclusion of the transaction
+        // Check inclusion of the transaction
         bytes32 _merkleRoot = chain[_blockHeight][0].merkleRoot;
         bytes29 intermediateNodes = _intermediateNodes.ref(0).tryAsMerkleArray(); // Check for errors if any
-        
-        emit NewQuery(_txid, _blockHeight, paidFee); 
         return BitcoinHelper.prove(_txid, _merkleRoot, intermediateNodes, _index);   
     }
 
     /// @notice Same as getBlockHeaderHash, but can be called by other contracts
     /// @dev Caller should pay the query fee
-    function getBlockHeaderHashContract(uint _height, uint _index) external payable override returns (bytes32) {
+    function getBlockHeaderHashContract(
+        uint _height, 
+        uint _index
+    ) external payable override returns (bytes32) {
         uint paidFee = _getFee(chain[_height][_index].gasPrice);
         emit NewQuery(chain[_height][_index].selfHash, _height, paidFee); 
         return chain[_height][_index].selfHash;
@@ -360,7 +369,11 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
     }
 
     /// @notice Adds headers to storage after validating
-    function _addHeaders(bytes29 _anchor, bytes29 _headers, bool _internal) internal virtual returns (bool) {
+    function _addHeaders(
+        bytes29 _anchor, 
+        bytes29 _headers, 
+        bool _internal
+    ) internal virtual returns (bool) {
         // Extract basic info
         bytes32 _previousHash = _anchor.hash256();
         uint256 _anchorHeight = _findHeight(_previousHash); // revert if the block is unknown
@@ -378,13 +391,13 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
         );
 
         /*
-            1. check that the blockheader is not a replica
-            2. check blocks are in the same epoch regarding difficulty
-            3. check that headers are in a coherent chain (no retargets, hash links good)
-            4. check that the header has sufficient work
+            1. Check that the blockheader is not replicated
+            2. Check blocks are in the same epoch regarding difficulty
+            3. Check that headers are in a coherent chain (no retargets, hash links good)
+            4. Check that the header has sufficient work
             5. Store the block connection
             6. Store the height
-            7. store the block in the chain
+            7. Store the block in the chain
         */
         uint256 _height;
         bytes32 _currentHash;
@@ -474,7 +487,7 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
             * (ONE_HUNDRED_PERCENT + relayerPercentageFee) / ONE_HUNDRED_PERCENT;
 
         // Reward in TDT
-        uint contractTDTBalance = 0;
+        uint contractTDTBalance;
         if (TeleportDAOToken != address(0)) {
             contractTDTBalance = IERC20(TeleportDAOToken).balanceOf(address(this));
         }
@@ -490,8 +503,8 @@ contract BitcoinRelay is IBitcoinRelay, Ownable, ReentrancyGuard, Pausable {
         // Send reward in TNT
         bool sentTNT;
         if (address(this).balance > rewardAmountInTNT && rewardAmountInTNT > 0) {
-            // note: no need to revert if failed
-            (sentTNT,) = payable(_relayer).call{value: rewardAmountInTNT}("");
+            Address.sendValue(payable(_relayer), rewardAmountInTNT);
+            sentTNT = true;
         }
 
         if (sentTNT) {

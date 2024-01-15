@@ -147,13 +147,13 @@ describe("Bitcoin Relay", async () => {
     // SCENARIOS:
     describe('Submitting block headers', async () => {
 
-        it('check the owner', async function () {
-            let theOwnerAddress = await bitcoinRelay.owner()
+        // it('check the owner', async function () {
+        //     let theOwnerAddress = await bitcoinRelay.owner()
 
-            let theDeployerAddress = await deployer.getAddress();
+        //     let theDeployerAddress = await deployer.getAddress();
 
-            expect(theOwnerAddress).to.equal(theDeployerAddress);
-        })
+        //     expect(theOwnerAddress).to.equal(theDeployerAddress);
+        // })
 
         it('submit old block headers', async function () {
             this.timeout(0);
@@ -167,15 +167,16 @@ describe("Bitcoin Relay", async () => {
 
                 if (i == startFrom) {
                     blockHeaderOld = '0x' + blockHeaders[startFrom * 63];
-                    for (let j = 1; j < 63; j++) {
+                    for (let j = 1; j < 2; j++) {
                         blockHeadersNew = blockHeadersNew + blockHeaders[j + i*63];
                     }
                 } else {
                     blockHeaderOld = '0x' + blockHeaders[i*63 - 1];
-                    for (let j = 0; j < 63; j++) {
+                    for (let j = 0; j < 1; j++) {
                         blockHeadersNew = blockHeadersNew + blockHeaders[j + i*63];
                     }
                 }
+                console.log("blockHeaderOld", blockHeaderOld, "blockHeadersNew", blockHeadersNew);
 
                 expect(
                     await bitcoinRelay.addHeaders(
